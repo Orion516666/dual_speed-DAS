@@ -55,4 +55,4 @@ num_sensor_points = 256;
 sensor.mask = makeCartCircle(sensor_radius, num_sensor_points);
 
 % run the simulation
-sensor_data = kspaceFirstOrder2D(kgrid, medium, source, sensor);
+% sensor_data = kspaceFirstOrder2D(kgrid, medium, source, sensor);

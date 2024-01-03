@@ -1,116 +1,100 @@
-% Defining A Source Using An Array Transducer Example
-% 
-% This example provides a demonstration of using the kWaveArray class to
-% define an array transducer with three arc-shaped elements without
-% staircasing errors.
-%
-% For a more detailed discussion of this example and the underlying
-% techniques, see E. S. Wise, B. T. Cox, J. Jaros, & B. E. Treeby (2019).
-% Representing arbitrary acoustic source and sensor distributions in
-% Fourier collocation methods. The Journal of the Acoustical Society of
-% America, 146(1), 278-288. https://doi.org/10.1121/1.5116132.
-%
-% author: Bradley Treeby
-% date: 4th September 2018
-% last update: 2nd November 2022
-%  
-% This function is part of the k-Wave Toolbox (http://www.k-wave.org)
-% Copyright (C) 2018-2022 Bradley Treeby
+function [channel_data, sample_freq, rowIndex, colIndex] = us_transducer_simulation(channel_index, phantom_sos, num_sensor_points, sensor_radius)
+% ABOUT:
+%       author               - Xinlong Dong(shanghaitech university)
+%       date                 - 2024.1.3
+%       last update          - 2024.1.3
 
-% This file is part of k-Wave. k-Wave is free software: you can
-% redistribute it and/or modify it under the terms of the GNU Lesser
-% General Public License as published by the Free Software Foundation,
-% either version 3 of the License, or (at your option) any later version.
-% 
-% k-Wave is distributed in the hope that it will be useful, but WITHOUT ANY
-% WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-% FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
-% more details. 
-% 
-% You should have received a copy of the GNU Lesser General Public License
-% along with k-Wave. If not, see <http://www.gnu.org/licenses/>. 
+    %% Define media and its properties
+    % create the computational grid
+    Nx = 1200;                                                  % number of grid points in the x (row) direction
+    Ny = 1200;                                                  % number of grid points in the y (column) direction
+    dx = 1e-4;                                                  % grid point spacing in the x direction [m]
+    dy = 1e-4;                                                  % grid point spacing in the y direction [m]
+    kgrid = makeGrid(Nx,dx,Ny,dy);
+    
+    % medium
+    medium.sound_speed = phantom_sos;                           % [m/s]
+    % medium.sound_speed = 1500 * ones(Nx, Ny);
+    medium.density = 1000;                                      % [kg/m^3]
+    medium.alpha_coeff = 0.75 * ones(Nx, Ny);                   % [dB/(MHz^y cm)]
+    medium.alpha_power = 1.5;
+    
+    % Simulation time and step size
+    kgrid.makeTime(medium.sound_speed);
+    
+    %% Define ultrassound source and sensors
+    
+    % define sensors
+    % sensor_radius = 40e-3;                                       % [m]
+    % num_sensor_points = 256;
+    sensor.frequency_response = [6.25e6, 76.8];
+    sensor_radius = sensor_radius * dx;
+    sensor.mask = makeCartCircle(sensor_radius, num_sensor_points);
+    
+    % cartesian coordinate into grid format
+    [sensor_pos,~,~] = cart2grid(kgrid,sensor.mask);
+    
+    display_sensor = sensor_pos;
+    % define source
+    source_indice = find(sensor_pos);
+    sensor_pos(:) = 0;
+    sensor_pos(source_indice(channel_index)) = 1;
+    [rowIndex, colIndex] = find(sensor_pos == 1);
 
-clearvars;
+    source.p_mask = sensor_pos;
+    
+    % define pulse waveform
+    ping_pressure = 100;                                         % [Pa]
+    signal_freq = 5e6;                                           % [Hz]
+    ping_burst_cycles = 1;
+    source.p = ping_pressure * toneBurst(1/kgrid.dt, signal_freq, ping_burst_cycles);
+    
+    sample_freq = 1 / kgrid.dt;
+    
+    %% Simulation
 
-% =========================================================================
-% DEFINE KWAVEARRAY
-% =========================================================================
+    
+    %% GPU
+    % 用显卡跑kwave不写dataPath会报错h5文件不存在，因为kspaceFirstOrder2DG在c盘，但matlab没有c盘权限。
+    dataPath = pwd;
+        
+    input_args = {'PlotLayout', false, ... 
+                  'PlotPML', false, ...
+                  'DisplayMask', source.p_mask | display_sensor == 1,...
+                  'DataCast', 'single', ...
+                  'DataPath', dataPath};
 
-% create empty array
-karray = kWaveArray;
+    % 对sensor进行处理，因为gpu只能接收二进制grid，cart2grid是kwave的函数，google能搜到
+    [sensor.mask,~,reorder] = cart2grid(kgrid,sensor.mask);
+    sensor_pos_cart = zeros(num_sensor_points,2);
+    counter = 1;
+    for j = 1:Nx
+        for i = 1:Nx
+            if sensor.mask(i,j) == 1
+                sensor_pos_cart(counter,1) = (j-Nx/2)*dx;
+                sensor_pos_cart(counter,2) = (i-Nx/2)*dx;
+                counter = counter + 1;
+            end
+        end
+    end
 
-% add line shaped element
-karray.addDiscElement([0, 10e-3], 0.1e-3);
+    % dt: 17.2913ns, t_end: 126.002us, time steps: 7288
+    sensor_data = kspaceFirstOrder2DG(kgrid, medium, source, sensor, input_args{:});
+    % gpu跑出来的sensor_data，sensor的位置与cpu不一致，cpu的sensor序号方向是按照逆时针（顺时针？反正是一个方向）排列的。
+    % gpu的sensor序号方向是上下对称？具体见fig1
+    % 这地方的原因是cart2grid的时候reorder改变了sensor的顺序。因为cart2grid使用了最近邻插值，所以也无法完美的恢复信号。
+    temp_data = sensor_data;
+    temp_pos = sensor_pos_cart;
+    for i = 1:num_sensor_points
+        sensor_data(reorder(i,1),:) = temp_data(i,:);
+        sensor_pos_cart(reorder(i,1),:) = temp_pos(i,:);
+    end
+    
+    if  channel_index < 4
+        channel_data = sensor_data(4-channel_index, :);
+    else
+        channel_data = sensor_data(260-channel_index, :);
+    end
 
-% =========================================================================
-% DEFINE GRID PROPERTIES
-% =========================================================================
+end
 
-% grid properties
-Nx = 59;
-dx = 0.1e-3;
-Ny = 59;
-dy = 0.1e-3;
-kgrid = kWaveGrid(Nx, dx, Ny, dy);
-
-% medium properties
-medium.sound_speed = 1500;
-
-% time array
-kgrid.makeTime(medium.sound_speed);
-
-% =========================================================================
-% SIMULATION
-% =========================================================================
-
-% assign binary mask from karray to the source mask
-source.p_mask = karray.getArrayBinaryMask(kgrid);
-
-% set source signals, one for each physical array element
-f1 = 500e3;
-% f2 = 200e3;
-% f3 = 500e3;
-sig1 = toneBurst(1/kgrid.dt, f1, 1);
-% sig2 = toneBurst(1/kgrid.dt, f2, 5);
-% sig3 = toneBurst(1/kgrid.dt, f3, 5);
-
-% combine source signals into one array
-% source_signal = zeros(1, length(sig1));
-% source_signal(1, 1:length(sig1)) = sig1;
-% source_signal(2, 1:length(sig2)) = sig2;
-% source_signal(3, 1:length(sig3)) = sig3;
-
-% get distributed source signals (this automatically returns a weighted
-% source signal for each grid point that forms part of the source)
-source.p = karray.getDistributedSourceSignal(kgrid, sig1);
-
-
-sensor_radius = 10e-3;                      % [m]
-% sensor.frequency_response = [2e6, 70];
-num_sensor_points = 8;
-sensor.mask = makeCartCircle(sensor_radius, num_sensor_points);
-% sensor.record_start_index = 
-% run k-Wave simulation (no sensor is used for this example)
-sensor_data = kspaceFirstOrder2D(kgrid, medium, source, sensor);
-
-% % =========================================================================
-% % VISUALISATION
-% % =========================================================================
-% 
-% % create pml mask (default size in 2D is 20 grid points)
-% pml_size = 20;
-% pml_mask = false(Nx, Ny);
-% pml_mask(1:pml_size, :) = 1;
-% pml_mask(:, 1:pml_size) = 1;
-% pml_mask(end - pml_size + 1:end, :) = 1;
-% pml_mask(:, end - pml_size + 1:end) = 1;
-% 
-% % plot source and pml masks
-% figure;
-% imagesc(kgrid.y_vec, kgrid.x_vec, source.p_mask | pml_mask);
-% axis image;
-% colormap(flipud(gray));
-% 
-% % overlay the physical source positions
-% hold on;
-% karray.plotArray(false);
