@@ -28,12 +28,11 @@ function [channel_data, sample_freq, rowIndex, colIndex] = us_transducer_simulat
     % sensor_radius = 40e-3;                                       % [m]
     % num_sensor_points = 256;
     sensor.frequency_response = [6.25e6, 76.8];
-    sensor_radius = sensor_radius * dx;
     sensor.mask = makeCartCircle(sensor_radius, num_sensor_points);
     
     % cartesian coordinate into grid format
     [sensor_pos,~,~] = cart2grid(kgrid,sensor.mask);
-    
+
     display_sensor = sensor_pos;
     % define source
     source_indice = find(sensor_pos);
@@ -79,9 +78,8 @@ function [channel_data, sample_freq, rowIndex, colIndex] = us_transducer_simulat
     end
 
     % dt: 17.2913ns, t_end: 126.002us, time steps: 7288
-    sensor_data = kspaceFirstOrder2DG(kgrid, medium, source, sensor, input_args{:});
-    % gpu跑出来的sensor_data，sensor的位置与cpu不一致，cpu的sensor序号方向是按照逆时针（顺时针？反正是一个方向）排列的。
-    % gpu的sensor序号方向是上下对称？具体见fig1
+    % sensor_data = kspaceFirstOrder2DG(kgrid, medium, source, sensor, input_args{:});
+
     % 这地方的原因是cart2grid的时候reorder改变了sensor的顺序。因为cart2grid使用了最近邻插值，所以也无法完美的恢复信号。
     temp_data = sensor_data;
     temp_pos = sensor_pos_cart;
@@ -89,12 +87,13 @@ function [channel_data, sample_freq, rowIndex, colIndex] = us_transducer_simulat
         sensor_data(reorder(i,1),:) = temp_data(i,:);
         sensor_pos_cart(reorder(i,1),:) = temp_pos(i,:);
     end
-    
-    if  channel_index < 4
-        channel_data = sensor_data(4-channel_index, :);
-    else
-        channel_data = sensor_data(260-channel_index, :);
-    end
 
+    channel_data = sensor_data;
+    % 
+    % if  channel_index < 4
+    %     channel_data = sensor_data(4-channel_index, :);
+    % else
+    %     channel_data = sensor_data(260-channel_index, :);
+    % end
 end
 
