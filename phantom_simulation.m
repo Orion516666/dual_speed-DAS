@@ -9,6 +9,7 @@ dy = 1e-4;                                                  % grid point spacing
 kgrid = makeGrid(Nx,dx,Ny,dy);
 
 % medium
+% phantom_sos speed mean = 1538 stdDeviation = 39.4
 load("phantom_sos.mat")
 medium.sound_speed = phantom_sos;                           % [m/s]
 % medium.sound_speed = 1500 * ones(Nx, Ny);

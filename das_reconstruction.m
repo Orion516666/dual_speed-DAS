@@ -16,7 +16,7 @@
 %   simulation completed in 11min 11.9591s
 %   total computation time 11min 17.222s
 clear;
-load('sensor_data.mat');
+load('saved_data/sensor_data.mat');
 
 Nx = 1200;
 dx = 1e-4;
