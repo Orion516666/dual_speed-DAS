@@ -29,4 +29,5 @@ speed = 1517;
 
 p = DAS_circle(sensor_data,Nx,dx,interval,sensor_radius,speed,90);
 
-imagesc(-p)
+figure;
+imagesc(-p(401:800, 401:800));

@@ -17,19 +17,35 @@ coords = [x(:), y(:)];
 
 % point_result = zeros(num_points, 1);
 F = 1500e4 * ones(1200, 1200);
+medium_speed = 1580;
 
-tic
 for i = 1:num_points
     % 获取当前行的坐标
     current_point = coords(i, :);
     point_in_polygon = is_point_in_polygon(current_point, boundary_coords);
     if  point_in_polygon
-        F(current_point(1), current_point(2)) = 1550e4;
+        F(current_point(1), current_point(2)) = medium_speed*1e4;
         % point_result(i) = point_in_polygon;
     end
 end
+
+tic
+[X, Y] = meshgrid(401:1:800, 401:1:800);
+ROI_points = [X(:) Y(:)];
+
+ROI_TOF = zeros(length(ROI_points), 256);
+in_ROI = zeros(length(ROI_points), 1);
+
+p=parpool(6);
+parfor i = 1:length(ROI_points)
+    point = ROI_points(i, :);
+    TOF = one_point_tof(point, sensor_pos, F);
+    ROI_TOF(i, :) = TOF';
+    if  F(point(1), point(2)) ~= 1500e4
+        in_ROI(i) = 1;
+    end
+end
+delete(p);
 time = toc
 
-
-TOF = one_point_tof(point, sensor_pos, F);
-
+save(sprintf('ROI_tof_%d.mat', medium_speed), 'ROI_TOF');

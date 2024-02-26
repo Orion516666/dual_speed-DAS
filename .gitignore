@@ -1,4 +1,5 @@
 /sensor_data
+/saved_data
 
 # Prerequisites
 *.d
